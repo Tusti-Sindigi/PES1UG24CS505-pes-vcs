@@ -120,9 +120,15 @@ int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out
     char path[512];
     object_path(id_out, path, sizeof(path));
 
+    // ✅ FIXED directory creation
     char dir[512];
-    strncpy(dir, path, strlen(path) - strlen(strrchr(path, '/')));
-    dir[strlen(path) - strlen(strrchr(path, '/'))] = '\0';
+    strcpy(dir, path);
+    char *slash = strrchr(dir, '/');
+    if (!slash) {
+        free(full);
+        return -1;
+    }
+    *slash = '\0';
 
     mkdir(dir, 0755);
 
@@ -130,17 +136,29 @@ int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out
     snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", path);
 
     int fd = open(tmp_path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
-    if (fd < 0) return -1;
+    if (fd < 0) {
+        free(full);
+        return -1;
+    }
 
-    write(fd, full, total_len);
+    if (write(fd, full, total_len) != (ssize_t)total_len) {
+        close(fd);
+        free(full);
+        return -1;
+    }
+
     fsync(fd);
     close(fd);
 
-    rename(tmp_path, path);
+    if (rename(tmp_path, path) != 0) {
+        free(full);
+        return -1;
+    }
 
     free(full);
     return 0;
 }
+
 // Read an object from the store.
 //
 // Steps:
@@ -164,7 +182,59 @@ int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out
 // The caller is responsible for calling free(*data_out).
 // Returns 0 on success, -1 on error (file not found, corrupt, etc.).
 int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_t *len_out) {
-    // TODO: Implement
-    (void)id; (void)type_out; (void)data_out; (void)len_out;
-    return -1;
+    char path[512];
+    object_path(id, path, sizeof(path));
+
+    FILE *f = fopen(path, "rb");
+    if (!f) return -1;
+
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    rewind(f);
+
+    char *buffer = malloc(size);
+    if (!buffer) return -1;
+
+    fread(buffer, 1, size, f);
+    fclose(f);
+
+    // Integrity check
+    ObjectID check_id;
+    compute_hash(buffer, size, &check_id);
+    if (memcmp(id, &check_id, sizeof(ObjectID)) != 0) {
+        free(buffer);
+        return -1;
+    }
+
+    // Find header end
+    char *null_pos = memchr(buffer, '\0', size);
+    if (!null_pos) {
+        free(buffer);
+        return -1;
+    }
+
+    // Parse type
+    if (strncmp(buffer, "blob", 4) == 0) *type_out = OBJ_BLOB;
+    else if (strncmp(buffer, "tree", 4) == 0) *type_out = OBJ_TREE;
+    else if (strncmp(buffer, "commit", 6) == 0) *type_out = OBJ_COMMIT;
+    else {
+        free(buffer);
+        return -1;
+    }
+
+    // Extract data
+    size_t data_len = size - (null_pos - buffer) - 1;
+    void *data = malloc(data_len);
+    if (!data) {
+        free(buffer);
+        return -1;
+    }
+
+    memcpy(data, null_pos + 1, data_len);
+
+    *data_out = data;
+    *len_out = data_len;
+
+    free(buffer);
+    return 0;
 }
