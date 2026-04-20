@@ -194,3 +194,7 @@ make
 ├── index
 └── HEAD
 ```
+
+## Project Report
+
+[Report](./report.pdf)
