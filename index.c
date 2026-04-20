@@ -22,6 +22,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <dirent.h>
 
 // forward declaration
 int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out);
