@@ -16,17 +16,15 @@
 // TODO functions:     index_load, index_save, index_add
 
 #include "index.h"
+#include "pes.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <fcntl.h>
 #include <unistd.h>
-#include <dirent.h>
 
 // forward declaration
 int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out);
-
 // ─── PROVIDED ────────────────────────────────────────────────────────────────
 
 // Find an index entry by path (linear scan).
@@ -224,10 +222,13 @@ int index_save(const Index *index) {
 //
 // Returns 0 on success, -1 on error.
 int index_add(Index *index, const char *path) {
+    // Load file
     FILE *f = fopen(path, "rb");
-    if (!f) return -1;
+    if (!f) {
+        perror("fopen");
+        return -1;
+    }
 
-    // Read file content
     fseek(f, 0, SEEK_END);
     long size = ftell(f);
     rewind(f);
@@ -238,10 +239,14 @@ int index_add(Index *index, const char *path) {
         return -1;
     }
 
-    fread(buffer, 1, size, f);
+    if (fread(buffer, 1, size, f) != (size_t)size) {
+        fclose(f);
+        free(buffer);
+        return -1;
+    }
     fclose(f);
 
-    // Write as blob
+    // Write blob
     ObjectID id;
     if (object_write(OBJ_BLOB, buffer, size, &id) != 0) {
         free(buffer);
@@ -252,16 +257,25 @@ int index_add(Index *index, const char *path) {
 
     // Get file metadata
     struct stat st;
-    if (stat(path, &st) != 0) return -1;
+    if (stat(path, &st) != 0) {
+        perror("stat");
+        return -1;
+    }
 
-    // Check if already exists
+    // Find existing or create new
     IndexEntry *e = index_find(index, path);
-
     if (!e) {
+        if (index->count >= MAX_INDEX_ENTRIES)
+            return -1;
         e = &index->entries[index->count++];
     }
 
-    e->mode = st.st_mode & 0777 ? 0100755 : 0100644;
+    // Set fields
+    if (st.st_mode & S_IXUSR)
+        e->mode = 0100755;
+    else
+        e->mode = 0100644;
+
     e->hash = id;
     e->mtime_sec = st.st_mtime;
     e->size = st.st_size;
