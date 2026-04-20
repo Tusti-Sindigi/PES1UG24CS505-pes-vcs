@@ -184,14 +184,32 @@ int compare_entries(const void *a, const void *b) {
     return strcmp(e1->path, e2->path);
 }
 
+int compare_entries(const void *a, const void *b) {
+    const IndexEntry *e1 = a;
+    const IndexEntry *e2 = b;
+    return strcmp(e1->path, e2->path);
+}
+
 int index_save(const Index *index) {
+    if (!index) return -1;
+
+    if (index->count < 0 || index->count > MAX_INDEX_ENTRIES)
+        return -1;
+
     char tmp_path[] = INDEX_FILE ".tmp";
 
     FILE *f = fopen(tmp_path, "w");
     if (!f) return -1;
 
-    // Make a copy to sort
-    Index temp = *index;
+    // Safe copy
+    Index temp;
+    temp.count = index->count;
+
+    for (int i = 0; i < index->count; i++) {
+        temp.entries[i] = index->entries[i];
+    }
+
+    // Sort
     qsort(temp.entries, temp.count, sizeof(IndexEntry), compare_entries);
 
     for (int i = 0; i < temp.count; i++) {
