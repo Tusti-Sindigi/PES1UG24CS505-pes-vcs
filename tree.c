@@ -129,9 +129,81 @@ int tree_serialize(const Tree *tree, void **data_out, size_t *len_out) {
 //   - object_write    : save that binary buffer to the store as OBJ_TREE
 //
 // Returns 0 on success, -1 on error.
+static int build_tree(Index *index, const char *prefix, ObjectID *id_out) {
+    Tree tree;
+    tree.count = 0;
+
+    size_t prefix_len = strlen(prefix);
+
+    for (int i = 0; i < index->count; i++) {
+        const char *path = index->entries[i].path;
+
+        // Check if this entry belongs to this level
+        if (strncmp(path, prefix, prefix_len) != 0)
+            continue;
+
+        const char *rest = path + prefix_len;
+
+        // Skip deeper levels (handled separately)
+        const char *slash = strchr(rest, '/');
+
+        if (slash) {
+            // Directory case
+            size_t dir_len = slash - rest;
+
+            char dirname[256];
+            strncpy(dirname, rest, dir_len);
+            dirname[dir_len] = '\0';
+
+            // Check if already added
+            int exists = 0;
+            for (int j = 0; j < tree.count; j++) {
+                if (strcmp(tree.entries[j].name, dirname) == 0) {
+                    exists = 1;
+                    break;
+                }
+            }
+            if (exists) continue;
+
+            // Build subtree
+            char new_prefix[512];
+            snprintf(new_prefix, sizeof(new_prefix), "%s%s/", prefix, dirname);
+
+            ObjectID subtree_id;
+            if (build_tree(index, new_prefix, &subtree_id) != 0)
+                return -1;
+
+            TreeEntry *entry = &tree.entries[tree.count++];
+            entry->mode = 0040000; // directory
+            entry->hash = subtree_id;
+            strcpy(entry->name, dirname);
+
+        } else {
+            // File case
+            TreeEntry *entry = &tree.entries[tree.count++];
+            entry->mode = index->entries[i].mode;
+            entry->hash = index->entries[i].hash;
+            strcpy(entry->name, rest);
+        }
+    }
+
+    void *data;
+    size_t len;
+
+    if (tree_serialize(&tree, &data, &len) != 0)
+        return -1;
+
+    int rc = object_write(OBJ_TREE, data, len, id_out);
+
+    free(data);
+    return rc;
+}
+
 int tree_from_index(ObjectID *id_out) {
-    // TODO: Implement recursive tree building
-    // (See Lab Appendix for logical steps)
-    (void)id_out;
-    return -1;
+    Index index;
+
+    if (index_load(&index) != 0)
+        return -1;
+
+    return build_tree(&index, "", id_out);
 }
