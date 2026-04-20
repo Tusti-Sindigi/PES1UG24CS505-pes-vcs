@@ -196,18 +196,24 @@ int head_update(const ObjectID *new_commit) {
 int commit_create(const char *message, ObjectID *commit_id) {
     ObjectID tree_id;
 
-    // Create tree from index
+    // Build tree from current index
     if (tree_from_index(&tree_id) != 0) {
         return -1;
     }
 
-    char buffer[1024];
+    // Convert tree hash to hex
+    char tree_hex[HASH_HEX_SIZE + 1];
+    hash_to_hex(&tree_id, tree_hex);
 
-    // Simple commit format
+    // Prepare commit content
+    char buffer[1024];
     int len = snprintf(buffer, sizeof(buffer),
                        "tree %s\n\n%s\n",
-                       hash_to_hex_str(&tree_id),
+                       tree_hex,
                        message);
 
+    if (len < 0) return -1;
+
+    // Write commit object
     return object_write(OBJ_COMMIT, buffer, len, commit_id);
 }
