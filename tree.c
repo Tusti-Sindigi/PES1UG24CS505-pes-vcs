@@ -17,6 +17,7 @@
 #include <sys/stat.h>
 #include "index.h"
 
+int index_load(Index *index);
 int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out);
 
 // ─── Mode Constants ─────────────────────────────────────────────────────────
@@ -200,6 +201,12 @@ static int build_tree(Index *index, const char *prefix, ObjectID *id_out) {
 
     free(data);
     return rc;
+}
+
+__attribute__((weak))
+int index_load(Index *index) {
+    (void)index;
+    return -1;
 }
 
 int tree_from_index(ObjectID *id_out) {
