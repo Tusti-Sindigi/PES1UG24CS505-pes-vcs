@@ -137,7 +137,7 @@ int index_status(const Index *index) {
 //
 // Returns 0 on success, -1 on error.
 int index_load(Index *index) {
-    index->count = 0;
+    index->count = 0;   // ✅ ALWAYS initialize
 
     FILE *f = fopen(INDEX_FILE, "r");
     if (!f) {
@@ -150,7 +150,7 @@ int index_load(Index *index) {
     uint64_t mtime;
     uint32_t size;
 
-    while (fscanf(f, "%s %s %lu %u %s\n",
+    while (fscanf(f, "%s %s %lu %u %s",
                   mode_str, hash_hex, &mtime, &size, path) == 5) {
 
         if (index->count >= MAX_INDEX_ENTRIES) break;
@@ -234,7 +234,16 @@ int index_add(Index *index, const char *path) {
     long size = ftell(f);
     rewind(f);
 
-    void *buffer = malloc(size);
+    if (size <= 0) {
+    fclose(f);
+    return -1;
+}
+
+void *buffer = malloc(size);
+if (!buffer) {
+    fclose(f);
+    return -1;
+}
     if (!buffer) {
         fclose(f);
         return -1;
@@ -265,11 +274,14 @@ int index_add(Index *index, const char *path) {
 
     // Find existing or create new
     IndexEntry *e = index_find(index, path);
-    if (!e) {
-        if (index->count >= MAX_INDEX_ENTRIES)
-            return -1;
-        e = &index->entries[index->count++];
-    }
+
+if (!e) {
+    if (index->count >= MAX_INDEX_ENTRIES)
+        return -1;
+
+    e = &index->entries[index->count];
+    index->count++;
+}
 
     // Set fields
     if (st.st_mode & S_IXUSR)
